@@ -1,63 +1,80 @@
-from deap import base, creator
+import math
+import operator
 import random
-from deap import tools
 
-IND_SIZE = 10
+from deap import base, creator, gp, tools, algorithms
+from deap.gp import PrimitiveSetTyped, PrimitiveTree, genFull, PrimitiveSet
+from scipy.stats import mstats
+
+tournament_size = 3
+min_terminal = 5
+max_terminal = 5
+max_depth = 17
+pop_size = 100
+num_generations = 100
+
+
+def protectedDiv(left, right):
+    try:
+        return left / right
+    except ZeroDivisionError:
+        return 1
+
+
+pset = gp.PrimitiveSet("MAIN", 1)
+pset.addPrimitive(operator.add, 2)
+pset.addPrimitive(operator.sub, 2)
+pset.addPrimitive(operator.mul, 2)
+pset.addPrimitive(protectedDiv, 2)
+pset.addPrimitive(operator.neg, 1)
+pset.addPrimitive(math.cos, 1)
+pset.addPrimitive(math.sin, 1)
+pset.addEphemeralConstant("rand101", lambda: random.randint(-1, 1))
+
+
+def fitness_evalaution(x):
+    if x > 0:
+        return (1 / x) + (math.sin(x))
+    else:
+        return (2 * x) + (x ** x) + 3.0
+
+
+def evalSymbReg(individual, points):
+    # Transform the tree expression in a callable function
+    func = toolbox.compile(expr=individual)
+    sqerrors = ((func(x) - x ** 4 - x ** 3 - x ** 2 - x) ** 2 for x in points)
+    return math.fsum(sqerrors) / len(points),
+
 
 creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-creator.create("Individual", list, fitness=creator.FitnessMin)
+creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
 
 toolbox = base.Toolbox()
-toolbox.register("attribute", random.random)
-toolbox.register("individual", tools.initRepeat, creator.Individual,
-                 toolbox.attribute, n=IND_SIZE)
+toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=2)
+toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+toolbox.register("compile", gp.compile, pset=pset)
 
+toolbox.register("evaluate", evalSymbReg, points=[x / 10. for x in range(-10, 10)])
+toolbox.register("select", tools.selTournament, tournsize=tournament_size)
+toolbox.register("mate", gp.cxOnePoint)
+toolbox.register("expr_mut", gp.genFull, min_=0, max_=2)
+toolbox.register("mutate", gp.mutUniform, expr=toolbox.expr_mut, pset=pset)
 
-def evaluate(individual):
-    return sum(individual),
-
-
-toolbox.register("mate", tools.cxTwoPoint)
-toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-toolbox.register("select", tools.selTournament, tournsize=3)
-toolbox.register("evaluate", evaluate)
+toolbox.decorate("mate", gp.staticLimit(key=operator.attrgetter("height"), max_value=max_depth))
+toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max_value=max_depth))
 
 
 def main():
-    pop = toolbox.population(n=50)
-    CXPB, MUTPB, NGEN = 0.5, 0.2, 40
+    pop = toolbox.population(n=pop_size)
+    hof = tools.HallOfFame(1)
+    pop, log = algorithms.eaSimple(pop, toolbox, 0.5, 0.1, 40, stats=mstats,
+                                   halloffame=hof, verbose=True)
 
-    # Evaluate the entire population
-    fitnesses = map(toolbox.evaluate, pop)
-    for ind, fit in zip(pop, fitnesses):
-        ind.fitness.values = fit
+    tree = gp.PrimitiveTree(hof)
+    print(str(tree))
+    function = toolbox.compile(expr=hof[0])
 
-    for g in range(NGEN):
-        # Select the next generation individuals
-        offspring = toolbox.select(pop, len(pop))
-        # Clone the selected individuals
-        offspring = map(toolbox.clone, offspring)
 
-        # Apply crossover and mutation on the offspring
-        for child1, child2 in zip(offspring[::2], offspring[1::2]):
-            if random.random() < CXPB:
-                toolbox.mate(child1, child2)
-                del child1.fitness.values
-                del child2.fitness.values
 
-        for mutant in offspring:
-            if random.random() < MUTPB:
-                toolbox.mutate(mutant)
-                del mutant.fitness.values
 
-        # Evaluate the individuals with an invalid fitness
-        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-        fitnesses = map(toolbox.evaluate, invalid_ind)
-        for ind, fit in zip(invalid_ind, fitnesses):
-            ind.fitness.values = fit
-
-        # The population is entirely replaced by the offspring
-        pop[:] = offspring
-
-    return pop
