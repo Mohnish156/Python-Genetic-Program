@@ -20,7 +20,7 @@ def protectedDiv(left, right):
 
 
 def multiply_itself(x):
-    return x ** x
+    return x * x
 
 
 pset = gp.PrimitiveSetTyped("MAIN", [float], float)
@@ -53,7 +53,7 @@ def fitness_evalaution(x):
     if x > 0:
         return (1 / x) + (math.sin(x))
     else:
-        return (2 * x) + (x ** x) + 3.0
+        return (2 * x) + (x * x) + 3.0
 
 
 def evalSymbReg(individual, points):
