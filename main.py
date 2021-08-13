@@ -3,11 +3,9 @@ import operator
 import random
 
 from deap import base, creator, gp, tools, algorithms
-from deap.gp import PrimitiveSetTyped, PrimitiveTree, genFull, PrimitiveSet
-from scipy.stats import mstats
 
 tournament_size = 3
-min_terminal = 5
+min_terminal = -5
 max_terminal = 5
 max_depth = 17
 pop_size = 100
@@ -21,15 +19,34 @@ def protectedDiv(left, right):
         return 1
 
 
-pset = gp.PrimitiveSet("MAIN", 1)
-pset.addPrimitive(operator.add, 2)
-pset.addPrimitive(operator.sub, 2)
-pset.addPrimitive(operator.mul, 2)
-pset.addPrimitive(protectedDiv, 2)
-pset.addPrimitive(operator.neg, 1)
-pset.addPrimitive(math.cos, 1)
-pset.addPrimitive(math.sin, 1)
-pset.addEphemeralConstant("rand101", lambda: random.randint(-1, 1))
+def multiply_itself(x):
+    return x ** x
+
+
+pset = gp.PrimitiveSetTyped("MAIN", [float], float)
+pset.renameArguments(ARG0='x')
+
+pset.addPrimitive(operator.add, [float, float], float)
+pset.addPrimitive(operator.sub, [float, float], float)
+pset.addPrimitive(operator.mul, [float, float], float)
+pset.addPrimitive(protectedDiv, [float, float], float)
+pset.addPrimitive(operator.neg, [float], float)
+pset.addPrimitive(math.cos, [float], float)
+pset.addPrimitive(math.sin, [float], float)
+pset.addPrimitive(multiply_itself, [float], float)
+# pset.addEphemeralConstant("rand101", lambda: random.randint(-1, 1))
+
+for x in range(min_terminal, max_terminal):
+    pset.addTerminal(x, float)
+
+creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
+creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
+
+toolbox = base.Toolbox()
+toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=2)
+toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
+toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+toolbox.register("compile", gp.compile, pset=pset)
 
 
 def fitness_evalaution(x):
@@ -40,20 +57,13 @@ def fitness_evalaution(x):
 
 
 def evalSymbReg(individual, points):
-    # Transform the tree expression in a callable function
     func = toolbox.compile(expr=individual)
-    sqerrors = ((func(x) - x ** 4 - x ** 3 - x ** 2 - x) ** 2 for x in points)
-    return math.fsum(sqerrors) / len(points),
+    errors = list()
+    for x in points:
+        errors.append(multiply_itself(func(x) - fitness_evalaution(x)))
 
+    return sum(errors) / len(errors),
 
-creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-creator.create("Individual", gp.PrimitiveTree, fitness=creator.FitnessMin)
-
-toolbox = base.Toolbox()
-toolbox.register("expr", gp.genHalfAndHalf, pset=pset, min_=1, max_=2)
-toolbox.register("individual", tools.initIterate, creator.Individual, toolbox.expr)
-toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-toolbox.register("compile", gp.compile, pset=pset)
 
 toolbox.register("evaluate", evalSymbReg, points=[x / 10. for x in range(-10, 10)])
 toolbox.register("select", tools.selTournament, tournsize=tournament_size)
@@ -66,15 +76,17 @@ toolbox.decorate("mutate", gp.staticLimit(key=operator.attrgetter("height"), max
 
 
 def main():
+    random.seed(318)
     pop = toolbox.population(n=pop_size)
     hof = tools.HallOfFame(1)
-    pop, log = algorithms.eaSimple(pop, toolbox, 0.5, 0.1, 40, stats=mstats,
+    pop, log = algorithms.eaSimple(pop, toolbox, 0.5, 0.1, num_generations,
                                    halloffame=hof, verbose=True)
 
-    tree = gp.PrimitiveTree(hof)
+    tree = gp.PrimitiveTree(hof[0])
     print(str(tree))
     function = toolbox.compile(expr=hof[0])
+    return pop, log, hof
 
 
-
-
+if __name__ == '__main__':
+    main()
